@@ -1,0 +1,279 @@
+---
+title: "Analysis of Contributing Factors to Car Accidents in Montgomery County"
+author: "Diana Andersen, Setsuka Aust"
+date: "3/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Intro
+Car Crashes are routinely one of the leading causes of death in the United States. Anually, an estimated 5.2% of Americans die from an accident involving a car. In this report, our goal is to find evidence and use inference to make conclusions about risk factors involved in a car crash.
+
+
+##Data Background
+The data set, used in our analysis, was provided by Montgomery County, MD and collected by Maryland State Police. The data was collected over a span of 2 years; Sept 2017 - March 2019. The features of this data set include injury severity, collision type, and pertinent car crash information. There are a total of 86,046 enteries in this dataset. 
+
+
+```{r}
+dat = read.csv("Crash_Data.csv")
+install.packages("plotly",repos = "http://cran.us.r-project.org")
+library(plotly)
+library(rJava)
+library(OpenStreetMap)
+library(ggmap)
+dat["crashHour"] = as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))
+dat["crashMonth"] = as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%m"))
+```
+
+
+##Exploration
+Upon initial exploration of the data, we can see the dataset consists of 86,046 and 32 features. The features that appeared the greatest evidence for inferential conclusions included: Driver substance abuse (a feature consisting of  levels 12), Injury Severity (a feature of 5 levels), collission type (a feature of 19 levels), weather (a feature of 13 levels), and driver at fault (a feature of 3 levels). 
+
+
+
+```{r}
+summary(dat[,c(1,3,4,6,8,11,12,13,15)])
+```
+
+
+
+From the summary of our data, and prior information of car crashes, we were able to form hypotheses for exploration These questions include:
+      
+#####1.Is there a monthly or hourly trend in number of car crashes, especially as related to auxillary variables?
+
+ 
+#####2.Of substance abuse involved crashes, what type of collission is most prevalent, and are they geographically isolated? Are there a disporoptionate number of injuries in these crashes? 
+
+ 
+#####3.What roads have the greatest frequencies of crashes, and of these what traffic control type was listed? Does weather impact crashes on these roads? 
+
+  
+
+##Cleaning
+The dataset was generally in a good condition. There were, however, areas of the dataset that needed cleaning or deletion. 
+
+*We had first noticed the high proportions of N/A values in the "Municipality" field. We decided to delete the field because of this reason.
+ We also removed the field, "Off.Road.Description" due to the high proportions of missing values. 
+ We limited the map to allow for readability.
+```{r}
+mean(dat$Municipality == 'N/A')
+dat[ , "Municipality"] = NULL
+zoomed = function(x){
+enhance = subset(x,-77.434646 <= x$Longitude & x$Longitude <=-76.898582 & 
+                    38.940001 <=x$Latitude & x$Latitude <= 39.331558)
+}
+```
+
+*Additionally, we removed the field "Agency.name", because they were not formatted consistently, or needed for our analysis. 
+
+
+##Visualizations
+
+
+###1. Is there a monthly, weekly, or hourly trend in proportion of car crashes?
+
+
+```{r}
+
+barplot(as.numeric(prop.table(table(as.integer(strftime(as.POSIXct(dat$Crash.Date.Time,format='%m/%d/%Y'), format="%m"))))), names.arg = c("Jan",	'Feb',	"Mar",	"Apr"	,"May",	"June",	"July",	"Aug",	"Sept",	"Oct",	"Nov",	"Dec") , col = "chartreuse", main = "Proportion of Crashes Per Month", las=2)
+
+barplot(as.numeric(prop.table(table(as.integer(strftime(as.POSIXct(dat$Crash.Date.Time,format='%m/%d/%Y'), format="%d"))))), col = "chartreuse", main = "Proportions of Crashes per Day of the Month", names.arg = 1:31, las=2, xlab = "Days of the Month")
+
+barplot(prop.table(table(as.integer(strftime(as.POSIXct(dat$Crash.Date.Time,format='%m/%d/%Y'), format="%W"))))[2:53], col = 'chartreuse', main = "Proportions of Crashes per Week")
+
+
+```
+
+
+It appears that more crashes occur during January, May, September, October, November, and December compared to other months. A reduction in accidents could be caused by more tourist traffic that leads to congested roads. Reduced speed would possibly reduce overall accidents.
+
+When comparing days of the week, there appears no clear disparities, except from the end of the month. This can be expected since some months do not have 31 or 30 days. It is interesting to notice the dip in accidents between the 25th and 27th. This could possibly be due to an increase of traffic citations to meet police officers' quotas towards the end of the month. People would probably drive more carefully if there were more officers sighted. https://brobible.com/culture/article/police-ticket-more-end-of-month/
+
+```{r}
+winter = dat[dat$crashMonth %in% c(11,12,1,2),]
+summer = dat[dat$crashMonth %in% c(5,6,7,8),]
+qmplot(Longitude, Latitude, data = zoomed(winter), geom = "blank", 
+       zoom = 11, maptype = "toner-lite", legend = "bottomright", main = "Winter Accidents") +
+  stat_density_2d(aes(fill = ..level..), geom = "polygon", alpha = .35, colour = NA) +
+  scale_fill_gradient2(na.value = "grey50", guide = "colourbar", aesthetics = "colour", low = "white", mid = "yellow", high = "red", midpoint = 650)
+
+qmplot(Longitude, Latitude, data = zoomed(summer), geom = "blank", 
+       zoom = 11, maptype = "toner-lite", legend = "bottomright", main = "Summer Accidents") +
+  stat_density_2d(aes(fill = ..level..), geom = "polygon", alpha = .35, colour = NA) +
+  scale_fill_gradient2(na.value = "grey50", guide = "colourbar", aesthetics = "colour", low = "white", mid = "yellow", high = "red", midpoint = 650)
+```
+
+
+Here we can see the change the frequencies of accidents in certain areas depending on the season. It appears there are similar crash patterns, but less amounts.
+
+
+We are next interested in finding proportions of injury related accidents per hour.
+
+
+```{r}
+ barplot(matrix(c(aggregate(Injury.Severity[dat$Injury.Severity %in% c("POSSIBLE INJURY","SUSPECTED MINOR INJURY", "NO APPARENT INJURY")]~as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))[dat$Injury.Severity %in% c("POSSIBLE INJURY","SUSPECTED MINOR INJURY", "NO APPARENT INJURY")], data = dat, length)[,2]/dim(dat)[1] , aggregate(Injury.Severity[dat$Injury.Severity %in% c("FATAL INJURY")]~as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))[dat$Injury.Severity %in% c("FATAL INJURY")], data = dat, length)[,2]/length(dat$Injury.Severity[dat$Injury.Severity %in% c("FATAL INJURY")])) ,ncol = 24), col = c("blue", "red"), names.arg = paste0(as.character(1:24) ,':00'), legend = c("Non-Injury","Injury"), main = "Proportion of Non Injury and Injury Accidents", las=2)
+```
+We can note that accident related injuries occur greatest during non commute hours. So the more congested the roads, the slower a person can drive, which would reasonably reduce injuries, since high impact crashes would cause more injury.
+
+This, however, leads us to wonder if rear-end accidents occur more frequently during commute times, since there would be more congestion in the roads, and possibly tired drivers with reduced reaction time.
+
+```{r}
+barplot(matrix(c(prop.table(table(as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))[dat$Collision.Type %in% c("SAME DIR REAR END"  )])),prop.table(table(as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))[!dat$Collision.Type %in% c("SAME DIR REAR END"  )]))) ,ncol = 24), col = c("blue", "red"), names.arg = paste0(as.character(1:24) ,':00'), legend = c("Rear-End","Not Rear-End"), main = "Proportion of Rear-End Accidents", las=2)
+
+
+
+prop.table(table(dat$Collision.Type[which(as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H")) %in% c(6:9, 17:19))]))[11] #rear end proprotions during commute hours
+
+prop.table(table(dat$Collision.Type))[11]                                                                                                           #overall proportion of rear end
+
+
+```
+Here we can see that rear end accidents do indeed occur more frequently during commute hours.
+
+```{r}
+prop.table(table((dat[which(dat$Report.Number %in% names(sort(table(dat$Report.Number), decreasing = TRUE)[1:1000])), "Collision.Type"])))[11]      #multi car crashes rear end proprtions
+```
+
+Additionally, of multi-car crashes, most of these involve rear end incidents. Rear end incidents are more than twice the proportion, compared to all crashes.
+
+
+
+
+```{r}
+barplot(aggregate(Person.ID~crashMonth+Injury.Severity, data = dat, length)[1:12,3] , main = "Number of Fatal Injuries per Month", col = rainbow(12), names.arg = 1:12)
+
+```
+
+
+
+The higher number of fatal crashes during September, October, November and December may be explained by holiday traffic
+
+
+
+```{r}
+fatal = dat[dat$Injury.Severity %in% c("FATAL INJURY", "SUSPECTED SERIOUS INJURY"),]
+nonfatal = dat[!dat$Injury.Severity %in% c("FATAL INJURY", "SUSPECTED SERIOUS INJURY"),]
+
+qmplot(Longitude, Latitude, data = zoomed(fatal), maptype = "toner-lite", colour = I('deeppink'), size = I(0.5), darken = .3, zoom = 11, main = "Fatal/Serious Accidents")
+qmplot(Longitude, Latitude, data = zoomed(nonfatal), maptype = "toner-lite", colour = I('darkorange'), size = I(0.5), darken = .3, zoom = 11, main = "Non-Fatal Accidents")
+```
+
+It appears that there are less injury/fatal involved accidents in the outskirts of the city. Though overall it seems there is no clear pattern or disparity
+
+
+###2. Of substance abuse involved crashes, what type of collission is most prevalent, and are they geographically isolated? Are there a disporoptionate number of injuries in these crashes?
+
+```{r}
+barplot(matrix(c(as.numeric(prop.table(table(dat[dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN") , "Collision.Type"])))[1:17], as.numeric(prop.table(table(dat[!dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN") , "Collision.Type"])))[1:17]) ,ncol = 17), col = c("blue", "red"), legend = c("Non-Substance Related","Substance Related"), main = "Proportion of Substance and Non Substance Accidents", names.arg = levels(dat$Collision.Type)[1:17], las=2)
+```
+
+
+
+From this exploratory analysis, we can see that the most diparate collission types between substance related crashes and non substance related crashes, would be between the variables: "HEAD ON" , "HEAD ON LEFT TURN", "SAME DIRECTION LEFT TURN", "SAME DIRECTION RIGHT TURN", "SINGLE VEHICLE". 
+
+```{r}
+as.numeric(prop.table(table(dat[!dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN") , "Collision.Type"])))[c(4,5,9,14,15,17)] - as.numeric(prop.table(table(dat[dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN") , "Collision.Type"])))[c(4,5,9,14,15,17)]
+```
+
+Here we have taken the difference between the proportions of Substance involved crashes and Non-Substance involved crashes. The most interesting piece of information is that Substance Involved Accidents tend to have a significantly higher proportion of Single Vehicle Accidents.
+
+Given the previous findings, this leads us to wonder if drivers under the influence tend to avoid busy streets. 
+
+Using the information from our previous findings, we would like to find the hours that the most substance involved accidents occur. These results can be useful to form recommendations of avoiding driving, or for police agencies to increase officer presence. 
+
+```{r}
+barplot(matrix(
+  c(
+  prop.table(table(as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))[dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN")])), prop.table(table(as.integer(format(as.POSIXct(dat$Crash.Date.Time,format="%m/%d/%Y %I:%M:%S %p"),"%H"))[!dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN")]))), ncol=24), col = c("Blue", "Red"), legend = c("Non-Substance Related","Substance Related"), names.arg = paste0(as.character(1:24) ,':00'), main = "Proportion of Substance/Non-Substance Accidents Per Hour" , las=2)
+
+```
+
+
+
+It is surprising to note that a high proportion of substance involved accidents occur during 7:00am-2pm.
+
+Next we are interested in seeing if there are geographically defined regions where substance related accidents occur, as related to time
+
+```{r}
+abuse = dat[!dat$Driver.Substance.Abuse %in% c("N/A" , "NONE DETECTED" ,"OTHER","UNKNOWN"),]
+qmplot(Longitude, Latitude, data = zoomed(abuse), maptype = "toner-lite", colour = Driver.Substance.Abuse) + 
+  facet_wrap(~ Driver.Substance.Abuse, dir = "h")
+```
+
+Here we can note many things: illegal drugs tend to be more geographically isolated outside of the city center, alcohol is the major contributor of substance involved accidents, and medication tends to be located closer to the city proper.
+
+
+
+```{r}
+dat["Non-Prescribed.Substance"] = as.factor(ifelse(dat$Driver.Substance.Abuse %in% c(  "ALCOHOL CONTRIBUTED",  "ALCOHOL PRESENT",  "ILLEGAL DRUG CONTRIBUTED", "ILLEGAL DRUG PRESENT"), "Substance", "No Substance"))
+
+
+   plotly::plot_ly(dat, x = ~Longitude, y = ~Latitude, z = ~crashHour, color = dat$`Non-Prescribed.Substance`, colors = c('#BF382A','#0C4B8E'))
+
+```
+There are several areas of interests to note. Of the outlier crashes, there appear to be more substance involved related accidents at certain regions and between certain hours.
+
+Knowing certain regions tend to have more alcohol related incidents, we would like to further explore spatial relations with accidents.
+
+###3. What roads have the greatest frequencies of crashes, and of how do traffic control types contribute?
+
+First we would like to understand how civil engineering practices can contribute to accidents by seeing proportions of accidents per type of traffic control.
+
+```{r}
+barplot(prop.table(table(dat$Traffic.Control)) , col = "green", las = 2, main = "Proportion of Accidents Per Traffic Control Type")
+```
+
+
+
+It is useful to note that a majority of listed crashes occur either in the absense of traffic controls, at a stop sign, or in the presence of a traffic signal. This seems to send two conflicting messages: do traffic controls cause more accidents, or are traffic controls useful? This would need further evaluation as to whether there exists confounding variables. A comparision of similar intersections with and without traffic controls would be needed to form a better conclusion.
+
+Next, we would like to see which roads may suffer from poor drainage or roads that have suffered loss of friction for overuse. Here we will compare roads with the highest number of crashes, to roads with highest number of crashes during rain. 
+
+```{r}
+barplot(as.numeric(sort(prop.table(table(dat$Road.Name)), decreasing = TRUE)[2:21]), names.arg = names(sort(prop.table(table(dat$Road.Name)), decreasing = TRUE)[2:21]), main = "20 Roads with Greatest Amount of Accidents" , col = "pink" , las=2)
+
+barplot(as.numeric(sort(prop.table(table(dat$Road.Name[dat$Weather %in% c("RAINING")])), decreasing = TRUE)[2:21]), names.arg = names(sort(prop.table(table(dat$Road.Name[dat$Weather %in% c("RAINING")])), decreasing = TRUE)[2:21]), main = "20 Roads with Greatest Amount of Accidents During Rain" , col = "pink" , las=2)
+
+setdiff(names(sort(prop.table(table(dat$Road.Name[dat$Weather %in% c("RAINING")])), decreasing = TRUE)[2:21]) , names(sort(prop.table(table(dat$Road.Name)), decreasing = TRUE)[2:21])) 
+```
+
+From our R console output and comparisions of the two barplots, we can see Captial Beltway, Clopper Rd, and Eisenhower Memorial Hwy represent a higher number of accidents during the rain, when compared to all weather events. These roads possibly suffer from poor civil engineering, drainage issues, or need better maintainence. Additionally, some roads, such as Randolph Rd tend to represent .01 higher proportion of crashes during the rain. These are roads of possible concern and may benfit from "weather proofing".
+
+```{r}
+wetRoad = dat[which(dat$Road.Name%in% names(sort(prop.table(table(dat$Road.Name)), decreasing = TRUE)[2:21])),]
+randWet = wetRoad[which(wetRoad$Weather == "RAINING" & wetRoad$Road.Name == "RANDOLPH RD"),]
+randClr = wetRoad[which(wetRoad$Weather == "CLEAR" & wetRoad$Road.Name == "RANDOLPH RD"  & wetRoad$Latitude < 39.1),]
+qmplot(Longitude, Latitude, data = zoomed(randWet), maptype = "toner-lite", colour = I('darkolivegreen1'), size = I(0.5), darken = .3, zoom = 11, main = "Randalph Road Wet")
+qmplot(Longitude, Latitude, data = zoomed(randClr), maptype = "toner-lite", colour = I('darkseagreen1'), size = I(0.5), darken = .3, zoom = 11, main = "Randalph Road Clear")
+```
+
+
+While more accidents occur on Randolph Rd during the rain, compared to other roads, it does not seem to have any variance between the two weather conditions
+
+```{r}
+geoWet = wetRoad[which(wetRoad$Weather == "RAINING" & wetRoad$Road.Name == "GEORGIA AVE"),]
+geoClr = wetRoad[which(wetRoad$Weather == "CLEAR" & wetRoad$Road.Name == "GEORGIA AVE"  & wetRoad$Latitude < 39.1),]
+
+qmplot(Longitude, Latitude, data = zoomed(geoWet), maptype = "toner-lite", colour = I('cyan'), size = I(0.5), darken = .3, zoom = 11, main = "Georgia Ave Wet")
+qmplot(Longitude, Latitude, data = zoomed(geoClr), maptype = "toner-lite", colour = I('cornsilk'), size = I(0.5), darken = .3, zoom = 11, main = "Georgia Ave Clear")
+```
+
+
+Georgia Ave has the most number of crashes for any road. During the rain, more accidents occur farther north, which suggests poorly maintained roads. 
+
+```{r}
+qmplot(Longitude, Latitude, data = zoomed(wetRoad), maptype = "toner-lite", colour = I('coral'), size = I(0.5), darken = .3, zoom = 11, main = "Top Twenty Most Dangerous Roads")
+```
+
+These roads are of most concern for civil engineers. 
+
+
+
+##Conclusions
+
+In this project we have gained insight into what variables may increase traffic accidents, particularly in Montgomery County, MD. We have performed an analysis on temporal relations of accidents. From this we learned that there are times that can be more dangerous for driving. Time also can influence collision types, and seems to show a trend in number of fatal injuries. In our second analysis on substance involved related crashes, we have noticed an increase in single vehicle accidents, demonstrated by the number of substance involved crashes, geographically and temporally defined, and saw an increase in single vehicle crashes. We also were able to find evidence of roads that may suffer from an increased number of accidents due to adverse weather conditions, and traffic controls types. Throughout the project, we have noted the limitations of our research and provided reasoning to the validity of our data.  
+
+
